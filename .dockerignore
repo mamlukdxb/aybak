@@ -1,5 +1,8 @@
-tests/
-.gitignore
-LICENSE
-README.md
-tmp/
+# Only what the image needs reaches the build. A vendor/ from a developer's
+# machine carries the development dependencies and must never be copied in.
+*
+!composer.json
+!composer.lock
+!src/
+!bin/
+!LICENSE

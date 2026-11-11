@@ -1,217 +1,183 @@
-
-[![](https://img.shields.io/github/license/mam-luk/aybak.svg)](https://github.com/mam-luk/aybak/blob/master/LICENSE)
-
 <p align="center">
-<img src=".mamluk/logo-horizontal.svg" alt="Kipchak by Mamluk" title="Kipchak by Mamluk - an API Toolkit" width="377"/>
+<img src=".mamluk/logo-horizontal.svg" alt="Aybak by Mamluk" title="Aybak by Mamluk" width="377"/>
 </p>
 
 # Aybak by Mamluk
-Aybak is a toolkit that comprises:
 
-* A single file utility that connects to a Kubernetes cluster periodically and extracts the IP addresses of the worker nodes.
-* It then writes these IP addresses to a git repo (configurable).
-* A set of GitHub Actions templates to help you configure the pipelines to update your load balancer (HA Proxy, in this case) with the new IPs. These pipelines templates are available at https://github.com/mam-luk/aybak-pipelines-template.
+Aybak keeps the load balancer in front of a Kubernetes cluster in step with the
+cluster's nodes. It runs inside the cluster, reads the nodes with a read-only
+ServiceAccount, and sends the addresses of the qualifying nodes to one or more
+outputs:
 
-## Why Aybak?
-It is useful in those cases where you cannot use a Service ```type: LoadBalancer``` as 
-the cloud provider's load balancers may have limitations (AWS, Azure, GCP OCI, Digital Ocean, Linode, Vultr all come to mind),
-especially if you are familiar with load balancing, layer 4 and 7 protocols and have an interest in tuning tcp configuration(s).
+* **git**: a JSON file in a git repository, for a pipeline that renders and
+  deploys the load balancer's configuration;
+* **webhook**: a signed HTTPS POST, for any receiver;
+* **dataplane**: HAProxy's Data Plane API (v3), which replaces the servers of
+  named backends in one transaction.
 
-Once the IPs are written to a git repo, you can use a pipeline orchestration (we provide a sample in the pipeline-sample folder) to update your own custom Load Balancer with the IPs.
+It is intended for clusters without a cloud load balancer, or whose operators
+prefer to run their own: a load balancer that knows the nodes, without a cloud
+controller manager.
 
-This then gives you a fully configurable load balancer to run in front of your Kubernetes cluster without owning the Kube Cloud Controller Manager (CCM).
+Aybak is an optional component of BKE, the Bahriya Kubernetes Engine, and is
+also usable on its own.
 
-This utility is meant to be run as a Deployment (a cronjob will not work as 60 seconds is simply too long to monitor for IP changes in a busy cluster).
+## The safety rule
 
-The utility is fully dockerised (and written in PHP 8) and has a low resource footprint, so you can 
-deploy it locally using docker compose or plain PHP if you don't want to run it on a cluster.
+**A failed or empty read sends nothing.** If the Kubernetes API cannot be read,
+or no node qualifies, every output keeps the last set it received. A load
+balancer emptied because the API server was briefly unreachable would take the
+whole cluster offline; aybak never does that.
 
-## A little detour in history - who was Sultan Aybak?
+## How it works
 
-Sultaz Izz al-Din Aybak (https://en.wikipedia.org/wiki/Aybak) was the first Sultan of the Mamluk Sultanate of Cairo, which succeeded the Ayyubid Sultantate established by the famous Sultan Salah al-Din Ayyubid (https://en.wikipedia.org/wiki/Saladin) who won back Jerusalem from the Franks. Sultan Aybak ruled from 1250 to 257.
+Every `AYBAK_RESYNC_SECONDS` (15 by default), aybak lists the nodes and selects:
 
-## Contents
-1. [Requirements](#requirements)
-2. [Docker Image](#published-docker-image)
-3. [Environment Variables & Configuration](#environment-variables--configuration)
-4. [Usage](#usage)
-5. [Deploying on Kubernetes for Production Use](deploying-on-kubernetes-for-production-use)
-6. [Generate a Read only user on your Kubernetes Cluster](#generate-a-read-only-user-on-your-kubernetes-cluster)
-7. [Credits](#credits)
-8. [Disclaimer](#disclaimer)
+* worker nodes only (`AYBAK_NODES=workers`, the default), or every node (`all`);
+* nodes that are Ready and schedulable;
+* one address per node, from the source named by `AYBAK_ADDRESS`.
 
-### Requirements
-* A Kubernetes Cluster and a token with read access to the cluster
-* A Git Repository to write the IPs of the worker nodes to
-* An SSH key to access the Git repository
-* Docker (recommended) or PHP 8.2+ (you'll need to setup env vars on your machine / server before using PHP without Docker)
+The set is sent to an output only when it differs from the last set that output
+accepted. An output that fails is tried again on the next pass, without holding
+back the others. A full list on every pass, rather than a watch, means a missed
+event can never leave a stale set in place for longer than one interval.
 
-### Published Docker Image
-The image for this utility is published @ Docker Hub as:
-* ghcr.io/mam-luk/aybak:latest
+The node set is:
 
-The latest tag always has the latest code. Also, Docker tags are tied to the tags in this git repository as releases and latest always, believe it or not, contains the latest code.
-
-### Environment Variables / Configuration
-The docker container takes all its configuration via environment variables. Here's a list of what each one does:
-
-| Environment Variable Name | Description                                                                                                                                                                                    | 
-|---------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------| 
-| GIT_REPO                  | The git repository to update with the Node IPs                                                                                                                                                 |                                                                                                                                                                                        | 
-| GIT_HOSTNAME              | Hostname of the git server. This will allow us to write the known_hosts file.                                                                                                                  |
-| GIT_SSH_KEY               | The SSH key with write access to the git repository.                                                                                                                                           |
-| QUERY_PERIOD              | How often to query the cluster to get the IPs, in seconds.                                                                                                                                     | 
-| GIT_REPO_FILE_NAME        | The path in the repo to which you would like to write the file with the IPs. 
-| K8S_CA                    | Kubernetes Control Plane CA. 
-| K8S_TOKEN                 | Kubernetes Control Plane Token. 
-| K8S_CONTROL_PLANE         | Kubernetes Control Plane URL. 
-
-
-### Usage
-
-You'll need to configure the Docker image with env variables.
-
-Create a .env file and add the relevant environment variables in it.
-
-Add a config.yaml file to the root of this repo. 
-
-On Kubernetes, you can mount this file as a volume.
-
-Or you can write your own Dockerfile and copy the config file into the image.
-
-Then run:
-```
-docker compose build and docker compose up
+```json
+{
+    "cluster": "beyazid",
+    "generated": "2026-11-11T10:00:00Z",
+    "nodes": [
+        {"name": "w1", "address": "10.1.0.4"},
+        {"name": "w2", "address": "10.1.0.6"}
+    ]
+}
 ```
 
-Or, if you're not using Docker and just PHP, you can run:
-```
-php bin/aybak
-```
+Nodes are sorted by name.
 
-### Deploying on Kubernetes for Production Use
-
-Here's a manifest to get you started:
-```
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: k8s-autoscaler
-  namespace: name-of-namespace ####### Change this to the actual namespace
-spec:
-  replicas: 1
-  strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxSurge: 1
-      maxUnavailable: 0
-  selector:
-    matchLabels:
-      app: aybak
-  template:
-    metadata:
-      labels:
-        app: aybak
-    spec:
-      containers:
-        - name: aybak
-          image: ghcr.io/mam-luk/aybak:latest ####### CHANGE THIS TO YOUR ACTUAL DOCKER IMAGE
-          env:
-            - name: GIT_SSH_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: aybak-secrets
-                  key: git-ssh-key
-            - name: K8S_CA
-              valueFrom:
-                secretKeyRef:
-                  name: aybak-secrets
-                  key: k8s-ca
-            - name: K8S_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: aybak-secrets
-                  key: k8s-token
-            - name: K8S_CONTROL_PLANE
-              valueFrom:
-                secretKeyRef:
-                  name: aybak-secrets
-                  key: k8s-control-plane
-            - name:  GIT_REPO
-              value: "git@github.com:username/reponame.git"
-            - name:  GIT_HOSTNAME
-              value: "github.com"
-             - name:  GIT_REPO_FILENAME
-              value: "nodes/cluster-name.json"
-             - name:  QUERY_PERIOD
-              value: "15"
-          resources:
-            requests:
-              memory: 32Mi
-            limits:
-              memory: 64Mi
+## Image
 
 ```
-
-The above manifest uses secrets to assign values to some of the 'secret' environment variables.
-
-You will need to create these.
-
-### Generate a Read only user on your Kubernetes Cluster
-The last thing you want to do is to give this utility a token with full access to your cluster.
-
-Use the following to create a read only service account on your cluster called 'aybak' that can retrieve node details:
-
-```
----
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: aybak
-  namespace: default
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: aybak
-rules:
-  - apiGroups: [""]
-    resources: ["nodes"]
-    verbs: ["get", "watch", "list"]
----
-kind: ClusterRoleBinding
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: aybak
-subjects:
-  - kind: ServiceAccount
-    name: aybak
-    namespace: default
-roleRef:
-  kind: ClusterRole
-  name: aybak
-  apiGroup: rbac.authorization.k8s.io
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: aybak
-  namespace: default
-  annotations:
-    kubernetes.io/service-account.name: aybak
-type: kubernetes.io/service-account-token
+1x.ax/bke/aybak:<version>
 ```
 
-Then, you can retrieve this user's token with the following:
+The image is built on `1x.ax/mamluk/php/8.5:cli` and signed with the BKE
+signing key. It runs as UID 10001. There is no `latest` tag: pin a full
+version.
+
+## Settings
+
+Aybak is configured entirely by environment variables. **Every credential is
+read from a file named by a setting**, never from the setting itself, so no
+secret is ever in the process environment or a log line. Mount Secrets as
+files.
+
+### General
+
+| Variable | Default | Description |
+|---|---|---|
+| `AYBAK_CLUSTER` | required | The cluster's name, written into every node set. Lower-case letters, digits, dots and hyphens. |
+| `AYBAK_OUTPUTS` | required | A comma-separated list of `git`, `webhook`, `dataplane`. |
+| `AYBAK_NODES` | `workers` | `workers` excludes nodes labelled `node-role.kubernetes.io/control-plane`; `all` includes them. |
+| `AYBAK_ADDRESS` | `InternalIP` | `InternalIP` or `ExternalIP` from the node's status, or `calico` for the `projectcalico.org/IPv4Address` annotation. |
+| `AYBAK_RESYNC_SECONDS` | `15` | Seconds between passes, from 5 to 300. |
+| `AYBAK_STATE_DIR` | `/var/lib/aybak` | Writable directory for the git working copy and the status files. |
+
+The Kubernetes API is found from the in-cluster environment
+(`KUBERNETES_SERVICE_HOST`, the ServiceAccount token and CA). The token is
+re-read on every pass, so a rotated token is picked up without a restart.
+
+### git
+
+| Variable | Default | Description |
+|---|---|---|
+| `AYBAK_GIT_URL` | required | SSH URL of the repository. |
+| `AYBAK_GIT_KEY_FILE` | required | Private key with write access to the repository. |
+| `AYBAK_GIT_KNOWN_HOSTS_FILE` | required | known_hosts for the git server. Host keys are never learned on first contact. |
+| `AYBAK_GIT_BRANCH` | `master` | Branch to commit to. |
+| `AYBAK_GIT_PATH` | `nodes/<cluster>.json` | Path of the file in the repository. |
+| `AYBAK_GIT_AUTHOR_NAME` | `Aybak` | Commit author name. |
+| `AYBAK_GIT_AUTHOR_EMAIL` | `aybak@localhost` | Commit author email. |
+
+A commit is made only when the nodes differ from those in the file, so a
+restarted aybak does not commit the same nodes again.
+
+### webhook
+
+| Variable | Default | Description |
+|---|---|---|
+| `AYBAK_WEBHOOK_URL` | required | An `https://` URL. |
+| `AYBAK_WEBHOOK_KEY_FILE` | required | Shared key for the signature. |
+
+The header `X-Aybak-Signature: sha256=<hex>` carries the HMAC-SHA256 of the
+exact request body with the shared key. A receiver should compute the same
+value and compare in constant time before acting on the set.
+
+### dataplane
+
+| Variable | Default | Description |
+|---|---|---|
+| `AYBAK_DATAPLANE_URL` | required | Base URL of the Data Plane API. |
+| `AYBAK_DATAPLANE_USER` | required | API user. |
+| `AYBAK_DATAPLANE_PASSWORD_FILE` | required | API password. |
+| `AYBAK_DATAPLANE_BACKENDS` | required | Comma-separated `<backend>:<port>`, e.g. `http:30080,https:30443`. |
+| `AYBAK_DATAPLANE_SEND_PROXY_V2` | `no` | `yes` adds `send-proxy-v2` to every server. |
+
+**A backend named here belongs to aybak.** Every server in it is replaced,
+including any added by hand. All named backends change in one transaction:
+HAProxy sees either the old servers everywhere or the new ones everywhere.
+
+## Health
+
+Aybak writes two files under `$AYBAK_STATE_DIR/status`:
+
+* `alive`, on every pass;
+* `ready`, only when the last read succeeded and every output holds the current
+  set. It is removed otherwise.
+
+Use them for the liveness and readiness probes. Logs are one JSON object per
+line on standard output.
+
+## Running it on Kubernetes
+
+BKE installs aybak for you. On another cluster, it needs:
+
+* a ServiceAccount bound to a ClusterRole that may `get` and `list` nodes, and
+  nothing else;
+* one replica (two replicas would be harmless, but send every change twice);
+* a writable `emptyDir` at `AYBAK_STATE_DIR` and another at `/tmp`, so the
+  root filesystem can be read-only;
+* the credential files of the outputs it uses, mounted from Secrets.
+
+```yaml
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+  seccompProfile:
+    type: RuntimeDefault
+```
+
+## Development
 
 ```
-kubectl get secret/aybak -o jsonpath='{.data.token}' -n default | base64 --decode
+composer install
+vendor/bin/phpunit
 ```
 
-### Credits
-* renoki-co/php-k8s
-* czproject/git-php
-* https://github.com/Seldaek/monolog
-* This utility has been built for Mamluk (https://mamluk.net), 7x (https://7x.ax) and Islamic Network (https://islamic.network)
+PHP 8.5 with the curl and pcntl extensions, and git for the git tests.
 
+## The name
+
+Sultan Izz al-Din Aybak was the first Sultan of the Mamluk Sultanate of Cairo,
+from 1250 to 1257.
+
+## Licence
+
+GPL-3.0-or-later. See [LICENSE](LICENSE).
