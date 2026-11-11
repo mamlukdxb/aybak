@@ -30,6 +30,7 @@ final readonly class DataPlane implements Output
         private string $passwordFile,
         private array $backends,
         private bool $sendProxyV2,
+        private ?string $caFile = null,
     ) {
     }
 
@@ -102,7 +103,11 @@ final readonly class DataPlane implements Output
         if ($body !== null) {
             $headers['Content-Type'] = 'application/json';
         }
-        $response = $this->http->request($method, $url, $headers, $body, ['basic_auth' => $auth]);
+        $options = ['basic_auth' => $auth];
+        if ($this->caFile !== null) {
+            $options['ca_file'] = $this->caFile;
+        }
+        $response = $this->http->request($method, $url, $headers, $body, $options);
         if (!$response->ok()) {
             throw new \RuntimeException("Data Plane API $method " . CurlTransport::redact(strtok($url, '?')) . " answered HTTP {$response->status}.");
         }

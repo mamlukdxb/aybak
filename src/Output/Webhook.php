@@ -15,7 +15,7 @@ use Aybak\NodeSet;
  */
 final readonly class Webhook implements Output
 {
-    public function __construct(private Transport $http, private string $url, private string $keyFile)
+    public function __construct(private Transport $http, private string $url, private string $keyFile, private ?string $caFile = null)
     {
     }
 
@@ -34,7 +34,7 @@ final readonly class Webhook implements Output
         $response = $this->http->request('POST', $this->url, [
             'Content-Type' => 'application/json',
             'X-Aybak-Signature' => 'sha256=' . self::sign($body, trim($key)),
-        ], $body);
+        ], $body, $this->caFile !== null ? ['ca_file' => $this->caFile] : []);
         if (!$response->ok()) {
             throw new \RuntimeException('The webhook at ' . CurlTransport::redact($this->url) . " answered HTTP {$response->status}.");
         }

@@ -40,6 +40,15 @@ final class ConfigTest extends TestCase
 
         self::assertSame(['http_back' => 32080, 'https_back' => 32443], $c->dataplaneBackends);
         self::assertTrue($c->dataplaneSendProxyV2);
+        self::assertNull($c->caFile);
+    }
+
+    public function testACaFileIsRead(): void
+    {
+        $c = Config::fromEnvironment(['AYBAK_CLUSTER' => 'c', 'AYBAK_OUTPUTS' => 'webhook', 'AYBAK_WEBHOOK_URL' => 'https://x',
+            'AYBAK_WEBHOOK_KEY_FILE' => '/k', 'AYBAK_CA_FILE' => '/etc/aybak/ca/ca.crt']);
+
+        self::assertSame('/etc/aybak/ca/ca.crt', $c->caFile);
     }
 
     /**

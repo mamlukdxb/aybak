@@ -4,7 +4,7 @@
 # The image's tag at 1x.ax/bke/aybak, read by the bahriya-images pipeline, which
 # builds, pushes and signs it. A published tag is never re-pushed, so a change to
 # the image changes this value, and the graph that installs it pins the new one.
-ARG AYBAK_VERSION=1.0.0
+ARG AYBAK_VERSION=1.0.1
 
 # --platform=$BUILDPLATFORM: the dependencies are plain PHP, the same on every
 # platform, so they are installed once, natively, rather than under emulation.

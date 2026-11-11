@@ -43,6 +43,7 @@ final readonly class Config
         public ?string $dataplanePasswordFile,
         public array $dataplaneBackends,
         public bool $dataplaneSendProxyV2,
+        public ?string $caFile = null,
     ) {
     }
 
@@ -113,6 +114,11 @@ final readonly class Config
             dataplanePasswordFile: $get('AYBAK_DATAPLANE_PASSWORD_FILE'),
             dataplaneBackends: $backends,
             dataplaneSendProxyV2: $get('AYBAK_DATAPLANE_SEND_PROXY_V2', 'no') === 'yes',
+            // The certificate authorities the webhook and the Data Plane API are
+            // checked against, for a load balancer whose certificate is from a
+            // private authority. When set, these alone are trusted for those
+            // two outputs, in place of the public authorities in the image.
+            caFile: $get('AYBAK_CA_FILE'),
         );
         $config->requireOutputSettings();
 

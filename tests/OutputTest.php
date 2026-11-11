@@ -103,6 +103,32 @@ final class OutputTest extends TestCase
         self::assertNotContains('PUT', array_column($http->requests, 'method'));
     }
 
+    /** A private certificate authority, when given, is used for every request of both outputs. */
+    public function testTheCaFileReachesEveryRequestOfBothOutputs(): void
+    {
+        $http = new FakeTransport();
+        (new Webhook($http, 'https://hooks.example.org/aybak', "{$this->dir}/key", '/etc/aybak/ca/ca.crt'))
+            ->send($this->set(), new \DateTimeImmutable());
+        $http->answers = [new Response(200, '7'), new Response(201, '{"id":"t1"}'), new Response(200, '[]'),
+            new Response(201, '{}'), new Response(201, '{}'), new Response(201, '{}'), new Response(202, '{}')];
+        (new DataPlane($http, 'https://lb:5555', 'aybak', "{$this->dir}/password", ['http_back' => 32080], false, '/etc/aybak/ca/ca.crt'))
+            ->send($this->set(), new \DateTimeImmutable());
+
+        self::assertCount(8, $http->requests);
+        foreach ($http->requests as $r) {
+            self::assertSame('/etc/aybak/ca/ca.crt', $r['options']['ca_file'] ?? null, $r['method'] . ' ' . $r['url']);
+        }
+    }
+
+    /** Without one, nothing is set, and curl uses the authorities in the image. */
+    public function testWithoutACaFileNoneIsSet(): void
+    {
+        $http = new FakeTransport();
+        (new Webhook($http, 'https://hooks.example.org/aybak', "{$this->dir}/key"))->send($this->set(), new \DateTimeImmutable());
+
+        self::assertArrayNotHasKey('ca_file', $http->requests[0]['options']);
+    }
+
     public function testKubernetesSendsTheTokenAndRejectsAnythingButANodeList(): void
     {
         $http = new FakeTransport();

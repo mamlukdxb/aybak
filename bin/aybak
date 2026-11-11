@@ -44,10 +44,11 @@ foreach ($config->outputs as $name) {
             (string) $config->gitKeyFile, (string) $config->gitKnownHostsFile,
             "{$config->stateDir}/repository", $config->gitAuthorName, $config->gitAuthorEmail,
         ),
-        'webhook' => new Webhook($http, (string) $config->webhookUrl, (string) $config->webhookKeyFile),
+        'webhook' => new Webhook($http, (string) $config->webhookUrl, (string) $config->webhookKeyFile, $config->caFile),
         'dataplane' => new DataPlane(
             $http, (string) $config->dataplaneUrl, (string) $config->dataplaneUser,
             (string) $config->dataplanePasswordFile, $config->dataplaneBackends, $config->dataplaneSendProxyV2,
+            $config->caFile,
         ),
     };
 }

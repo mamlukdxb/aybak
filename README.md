@@ -84,6 +84,7 @@ files.
 | `AYBAK_ADDRESS` | `InternalIP` | `InternalIP` or `ExternalIP` from the node's status, or `calico` for the `projectcalico.org/IPv4Address` annotation. |
 | `AYBAK_RESYNC_SECONDS` | `15` | Seconds between passes, from 5 to 300. |
 | `AYBAK_STATE_DIR` | `/var/lib/aybak` | Writable directory for the git working copy and the status files. |
+| `AYBAK_CA_FILE` | none | PEM certificate authorities for the webhook and the Data Plane API, for a load balancer whose certificate is from a private authority. When set, only these are trusted for those two outputs, in place of the public authorities in the image. |
 
 The Kubernetes API is found from the in-cluster environment
 (`KUBERNETES_SERVICE_HOST`, the ServiceAccount token and CA). The token is
