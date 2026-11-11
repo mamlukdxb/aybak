@@ -1,0 +1,72 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Aybak\Tests;
+
+use Aybak\Config;
+use Aybak\ConfigException;
+use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\TestCase;
+
+final class ConfigTest extends TestCase
+{
+    private const array GIT = [
+        'AYBAK_CLUSTER' => 'beyazid',
+        'AYBAK_OUTPUTS' => 'git',
+        'AYBAK_GIT_URL' => 'ssh://git@example.org/gateways.git',
+        'AYBAK_GIT_KEY_FILE' => '/run/aybak/git-key',
+        'AYBAK_GIT_KNOWN_HOSTS_FILE' => '/run/aybak/known_hosts',
+    ];
+
+    public function testDefaults(): void
+    {
+        $c = Config::fromEnvironment(self::GIT);
+
+        self::assertSame('workers', $c->nodes);
+        self::assertSame('InternalIP', $c->address);
+        self::assertSame(15, $c->resyncSeconds);
+        self::assertSame('master', $c->gitBranch);
+        self::assertSame('nodes/beyazid.json', $c->gitPath);
+    }
+
+    public function testDataplaneBackendsAreParsed(): void
+    {
+        $c = Config::fromEnvironment([
+            'AYBAK_CLUSTER' => 'c', 'AYBAK_OUTPUTS' => 'dataplane', 'AYBAK_DATAPLANE_URL' => 'https://lb:5555',
+            'AYBAK_DATAPLANE_USER' => 'aybak', 'AYBAK_DATAPLANE_PASSWORD_FILE' => '/run/p',
+            'AYBAK_DATAPLANE_BACKENDS' => 'http_back:32080, https_back:32443', 'AYBAK_DATAPLANE_SEND_PROXY_V2' => 'yes',
+        ]);
+
+        self::assertSame(['http_back' => 32080, 'https_back' => 32443], $c->dataplaneBackends);
+        self::assertTrue($c->dataplaneSendProxyV2);
+    }
+
+    /**
+     * @param array<string, string> $env
+     */
+    #[DataProvider('refused')]
+    public function testARefusedConfigurationStops(array $env, string $message): void
+    {
+        $this->expectException(ConfigException::class);
+        $this->expectExceptionMessage($message);
+        Config::fromEnvironment($env);
+    }
+
+    /** @return iterable<string, array{array<string, string>, string}> */
+    public static function refused(): iterable
+    {
+        yield 'no cluster' => [['AYBAK_OUTPUTS' => 'git'], 'AYBAK_CLUSTER is required'];
+        yield 'bad cluster name' => [['AYBAK_CLUSTER' => 'Bad Name', 'AYBAK_OUTPUTS' => 'git'], 'lower-case'];
+        yield 'no output' => [['AYBAK_CLUSTER' => 'c'], 'at least one'];
+        yield 'unknown output' => [['AYBAK_CLUSTER' => 'c', 'AYBAK_OUTPUTS' => 'git,ftp'], 'unknown output: ftp'];
+        yield 'unknown selection' => [self::GIT + ['AYBAK_NODES' => 'masters'], 'AYBAK_NODES'];
+        yield 'unknown address' => [self::GIT + ['AYBAK_ADDRESS' => 'Hostname'], 'AYBAK_ADDRESS'];
+        yield 'git without key' => [array_diff_key(self::GIT, ['AYBAK_GIT_KEY_FILE' => 1]), 'AYBAK_GIT_KEY_FILE is required'];
+        yield 'git without known hosts' => [array_diff_key(self::GIT, ['AYBAK_GIT_KNOWN_HOSTS_FILE' => 1]), 'AYBAK_GIT_KNOWN_HOSTS_FILE is required'];
+        yield 'webhook over http' => [['AYBAK_CLUSTER' => 'c', 'AYBAK_OUTPUTS' => 'webhook', 'AYBAK_WEBHOOK_URL' => 'http://x', 'AYBAK_WEBHOOK_KEY_FILE' => '/k'], 'https://'];
+        yield 'dataplane without backends' => [['AYBAK_CLUSTER' => 'c', 'AYBAK_OUTPUTS' => 'dataplane', 'AYBAK_DATAPLANE_URL' => 'https://lb', 'AYBAK_DATAPLANE_USER' => 'u', 'AYBAK_DATAPLANE_PASSWORD_FILE' => '/p'], 'AYBAK_DATAPLANE_BACKENDS is required'];
+        yield 'bad backend' => [['AYBAK_CLUSTER' => 'c', 'AYBAK_OUTPUTS' => 'dataplane', 'AYBAK_DATAPLANE_URL' => 'https://lb', 'AYBAK_DATAPLANE_USER' => 'u', 'AYBAK_DATAPLANE_PASSWORD_FILE' => '/p', 'AYBAK_DATAPLANE_BACKENDS' => 'http_back'], '<backend>:<port>'];
+        yield 'resync too short' => [self::GIT + ['AYBAK_RESYNC_SECONDS' => '1'], 'between 5 and 300'];
+    }
+}
