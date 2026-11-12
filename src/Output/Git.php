@@ -9,22 +9,42 @@ use Aybak\NodeSet;
 /**
  * Writes the node set to a file in a git repository and pushes it.
  *
- * SSH trusts only the host keys in the configured known_hosts file
+ * Over SSH, it trusts only the host keys in the configured known_hosts file
  * (StrictHostKeyChecking=yes): a host key is never learned on first contact.
- * A commit is made only when the nodes in the file differ from the set, so a
- * restarted aybak does not commit the same nodes again with a new time.
+ * Over HTTPS, it sends a user and a token read from a file, through a
+ * credential helper, so the token is never in an argument, the environment or
+ * a log line. A commit is made only when the nodes in the file differ from the
+ * set, so a restarted aybak does not commit the same nodes again with a new
+ * time.
  */
 final readonly class Git implements Output
 {
+    /**
+     * Answers git's credential requests from the token file. git runs it with
+     * an argument of get, store or erase; only get is answered, and nothing is
+     * ever stored. The token is copied from the file to standard output by tr,
+     * so it is in no argument of any process.
+     */
+    private const string CREDENTIAL_HELPER = '!f() { test "$1" = get || exit 0; '
+        . 'printf "username=%s\npassword=" "$AYBAK_GIT_HELPER_USER"; '
+        . 'tr -d "\r\n" < "$AYBAK_GIT_HELPER_TOKEN_FILE"; printf "\n"; }; f';
+
+    /**
+     * Give either $keyFile and $knownHostsFile (SSH), or $user and $tokenFile
+     * (HTTPS). $caFile, when given, replaces the public authorities for HTTPS.
+     */
     public function __construct(
         private string $url,
         private string $branch,
         private string $path,
-        private string $keyFile,
-        private string $knownHostsFile,
         private string $workDir,
         private string $authorName,
         private string $authorEmail,
+        private ?string $keyFile = null,
+        private ?string $knownHostsFile = null,
+        private ?string $user = null,
+        private ?string $tokenFile = null,
+        private ?string $caFile = null,
     ) {
     }
 
@@ -61,18 +81,49 @@ final readonly class Git implements Output
     }
 
     /**
+     * The options and environment for the configured method.
+     *
+     * @return array{list<string>, array<string, string>}
+     */
+    private function transport(): array
+    {
+        if ($this->tokenFile !== null) {
+            // The empty helper first clears any helper configured elsewhere,
+            // so only this one is asked and none can store the token.
+            $options = ['-c', 'credential.helper=', '-c', 'credential.helper=' . self::CREDENTIAL_HELPER, '-c', 'http.sslVerify=true'];
+            if ($this->caFile !== null) {
+                $options = [...$options, '-c', "http.sslCAInfo={$this->caFile}"];
+            }
+
+            return [$options, [
+                'AYBAK_GIT_HELPER_USER' => (string) $this->user,
+                'AYBAK_GIT_HELPER_TOKEN_FILE' => $this->tokenFile,
+            ]];
+        }
+
+        $ssh = sprintf(
+            'ssh -i %s -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=%s -o BatchMode=yes',
+            escapeshellarg((string) $this->keyFile),
+            escapeshellarg((string) $this->knownHostsFile),
+        );
+
+        return [[], ['GIT_SSH_COMMAND' => $ssh]];
+    }
+
+    /**
      * @param list<string> $args
      */
     private function git(array $args, ?string $cwd = ''): void
     {
-        $ssh = sprintf(
-            'ssh -i %s -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=%s -o BatchMode=yes',
-            escapeshellarg($this->keyFile),
-            escapeshellarg($this->knownHostsFile),
-        );
-        $env = ['GIT_SSH_COMMAND' => $ssh, 'GIT_TERMINAL_PROMPT' => '0', 'HOME' => sys_get_temp_dir(), 'PATH' => getenv('PATH') ?: '/usr/bin:/bin'];
+        [$options, $transportEnv] = $this->transport();
+        $env = $transportEnv + [
+            'GIT_TERMINAL_PROMPT' => '0',
+            'GIT_CONFIG_NOSYSTEM' => '1',
+            'HOME' => sys_get_temp_dir(),
+            'PATH' => getenv('PATH') ?: '/usr/bin:/bin',
+        ];
         $process = proc_open(
-            array_merge(['git'], $args),
+            array_merge(['git'], $options, $args),
             [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
             $pipes,
             $cwd === '' ? $this->workDir : $cwd,

@@ -34,6 +34,8 @@ final readonly class Config
         public string $gitPath,
         public ?string $gitKeyFile,
         public ?string $gitKnownHostsFile,
+        public ?string $gitUser,
+        public ?string $gitTokenFile,
         public string $gitAuthorName,
         public string $gitAuthorEmail,
         public ?string $webhookUrl,
@@ -105,6 +107,8 @@ final readonly class Config
             gitPath: $get('AYBAK_GIT_PATH', "nodes/$cluster.json"),
             gitKeyFile: $get('AYBAK_GIT_KEY_FILE'),
             gitKnownHostsFile: $get('AYBAK_GIT_KNOWN_HOSTS_FILE'),
+            gitUser: $get('AYBAK_GIT_USER'),
+            gitTokenFile: $get('AYBAK_GIT_TOKEN_FILE'),
             gitAuthorName: $get('AYBAK_GIT_AUTHOR_NAME', 'Aybak'),
             gitAuthorEmail: $get('AYBAK_GIT_AUTHOR_EMAIL', 'aybak@localhost'),
             webhookUrl: $get('AYBAK_WEBHOOK_URL'),
@@ -114,10 +118,11 @@ final readonly class Config
             dataplanePasswordFile: $get('AYBAK_DATAPLANE_PASSWORD_FILE'),
             dataplaneBackends: $backends,
             dataplaneSendProxyV2: $get('AYBAK_DATAPLANE_SEND_PROXY_V2', 'no') === 'yes',
-            // The certificate authorities the webhook and the Data Plane API are
-            // checked against, for a load balancer whose certificate is from a
-            // private authority. When set, these alone are trusted for those
-            // two outputs, in place of the public authorities in the image.
+            // The certificate authorities the webhook, the Data Plane API and
+            // git over HTTPS are checked against, for a server whose
+            // certificate is from a private authority. When set, these alone
+            // are trusted for those outputs, in place of the public
+            // authorities in the image.
             caFile: $get('AYBAK_CA_FILE'),
         );
         $config->requireOutputSettings();
@@ -125,10 +130,57 @@ final readonly class Config
         return $config;
     }
 
+    /**
+     * How the git output reaches its repository, from the URL's scheme: 'ssh'
+     * for ssh:// or user@host:path, 'https' for https://, null for anything
+     * else.
+     */
+    public function gitTransport(): ?string
+    {
+        $url = (string) $this->gitUrl;
+        if (str_starts_with($url, 'ssh://') || preg_match('/^[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:/', $url) === 1) {
+            return 'ssh';
+        }
+
+        return str_starts_with($url, 'https://') ? 'https' : null;
+    }
+
     private function requireOutputSettings(): void
     {
+        $ssh = ['AYBAK_GIT_KEY_FILE' => $this->gitKeyFile, 'AYBAK_GIT_KNOWN_HOSTS_FILE' => $this->gitKnownHostsFile];
+        $https = ['AYBAK_GIT_USER' => $this->gitUser, 'AYBAK_GIT_TOKEN_FILE' => $this->gitTokenFile];
+        if (in_array('git', $this->outputs, true)) {
+            if ($this->gitUrl === null) {
+                throw new ConfigException('AYBAK_GIT_URL is required when AYBAK_OUTPUTS includes git.');
+            }
+            $transport = $this->gitTransport()
+                ?? throw new ConfigException('AYBAK_GIT_URL must be an ssh:// or https:// URL, or user@host:path.');
+            // A user or password in an https:// URL would put the credential in
+            // git's arguments and in its error messages.
+            if ($transport === 'https' && preg_match('#^https://[^/]*@#', (string) $this->gitUrl) === 1) {
+                throw new ConfigException('AYBAK_GIT_URL must not carry a user or password; set AYBAK_GIT_USER and AYBAK_GIT_TOKEN_FILE.');
+            }
+            [$required, $other] = $transport === 'ssh' ? [$ssh, $https] : [$https, $ssh];
+            foreach ($required as $key => $value) {
+                if ($value === null) {
+                    throw new ConfigException("$key is required when AYBAK_GIT_URL is an $transport URL.");
+                }
+            }
+            // The user is handed to git's credential protocol, one field per
+            // line, so it may hold no white space.
+            if ($transport === 'https' && preg_match('/^[^\s:@\/]{1,100}$/', (string) $this->gitUser) !== 1) {
+                throw new ConfigException('AYBAK_GIT_USER must be a user name without spaces, colons, slashes or @.');
+            }
+            // The other method's settings would be ignored; refusing them makes
+            // a half-changed configuration visible at once.
+            foreach ($other as $key => $value) {
+                if ($value !== null) {
+                    throw new ConfigException("$key does not apply when AYBAK_GIT_URL is an $transport URL.");
+                }
+            }
+        }
         $need = [
-            'git' => ['AYBAK_GIT_URL' => $this->gitUrl, 'AYBAK_GIT_KEY_FILE' => $this->gitKeyFile, 'AYBAK_GIT_KNOWN_HOSTS_FILE' => $this->gitKnownHostsFile],
+            'git' => [],
             'webhook' => ['AYBAK_WEBHOOK_URL' => $this->webhookUrl, 'AYBAK_WEBHOOK_KEY_FILE' => $this->webhookKeyFile],
             'dataplane' => ['AYBAK_DATAPLANE_URL' => $this->dataplaneUrl, 'AYBAK_DATAPLANE_USER' => $this->dataplaneUser, 'AYBAK_DATAPLANE_PASSWORD_FILE' => $this->dataplanePasswordFile],
         ];

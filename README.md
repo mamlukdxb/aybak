@@ -146,7 +146,7 @@ files.
 | `AYBAK_ADDRESS` | `InternalIP` | `InternalIP` or `ExternalIP` from the node's status, or `calico` for the `projectcalico.org/IPv4Address` annotation. |
 | `AYBAK_RESYNC_SECONDS` | `15` | Seconds between passes, from 5 to 300. |
 | `AYBAK_STATE_DIR` | `/var/lib/aybak` | A writable directory for the git working copy and the status files. |
-| `AYBAK_CA_FILE` | none | PEM certificate authorities for the webhook and the Data Plane API, for a load balancer whose certificate is issued by a private authority. When set, only these are trusted for those two outputs, in place of the public authorities in the image. |
+| `AYBAK_CA_FILE` | none | PEM certificate authorities for the webhook, the Data Plane API and git over HTTPS, for a server whose certificate is issued by a private authority. When set, only these are trusted for those outputs, in place of the public authorities in the image. |
 
 Aybak finds the Kubernetes API from the in-cluster environment
 (`KUBERNETES_SERVICE_HOST`, the ServiceAccount token and CA). The token is read
@@ -154,15 +154,26 @@ again on every pass, so a rotated token is picked up without a restart.
 
 ### git
 
+Aybak reaches the repository over SSH or HTTPS, chosen by the URL. Set the
+two settings of one method; setting any of the other method's is refused.
+
 | Variable | Default | Description |
 |---|---|---|
-| `AYBAK_GIT_URL` | required | The repository's SSH URL. |
-| `AYBAK_GIT_KEY_FILE` | required | A private key with write access to the repository. |
-| `AYBAK_GIT_KNOWN_HOSTS_FILE` | required | known_hosts for the git server. Host keys are never learned on first contact. |
+| `AYBAK_GIT_URL` | required | The repository's URL: `ssh://` or `user@host:path` for SSH, `https://` for HTTPS. An HTTPS URL may not carry a user or password. |
+| `AYBAK_GIT_KEY_FILE` | SSH: required | A private key with write access to the repository. |
+| `AYBAK_GIT_KNOWN_HOSTS_FILE` | SSH: required | known_hosts for the git server. Host keys are never learned on first contact. |
+| `AYBAK_GIT_USER` | HTTPS: required | The user the token belongs to. |
+| `AYBAK_GIT_TOKEN_FILE` | HTTPS: required | An access token, or password, with write access to the repository. |
 | `AYBAK_GIT_BRANCH` | `master` | The branch to commit to. |
 | `AYBAK_GIT_PATH` | `nodes/<cluster>.json` | The file's path in the repository. |
 | `AYBAK_GIT_AUTHOR_NAME` | `Aybak` | The commit author's name. |
 | `AYBAK_GIT_AUTHOR_EMAIL` | `aybak@localhost` | The commit author's email address. |
+
+Over HTTPS, git asks a credential helper for the user and token, and the
+helper reads the token from its file at that moment. The token is never in a
+process argument, the environment or a log line, and nothing stores it. The
+server's certificate is checked against the image's public authorities, or
+against `AYBAK_CA_FILE` when it is set.
 
 A commit is made only when the nodes differ from those in the file, so a
 restarted Aybak does not commit the same nodes again.
@@ -196,7 +207,8 @@ backend.
 ## Development
 
 Development needs PHP 8.5 with the curl and pcntl extensions, and git for the
-git output's tests.
+git output's tests. The HTTPS tests run a git server on the loopback interface,
+with PHP's built-in web server in front of `git http-backend`.
 
 ```
 composer install

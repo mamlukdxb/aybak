@@ -19,6 +19,24 @@ final class ConfigTest extends TestCase
         'AYBAK_GIT_KNOWN_HOSTS_FILE' => '/run/aybak/known_hosts',
     ];
 
+    private const array GIT_HTTPS = [
+        'AYBAK_CLUSTER' => 'beyazid',
+        'AYBAK_OUTPUTS' => 'git',
+        'AYBAK_GIT_URL' => 'https://git.example.org/lb/gateways.git',
+        'AYBAK_GIT_USER' => 'aybak',
+        'AYBAK_GIT_TOKEN_FILE' => '/run/aybak/token',
+    ];
+
+    public function testTheGitTransportFollowsTheUrl(): void
+    {
+        self::assertSame('ssh', Config::fromEnvironment(self::GIT)->gitTransport());
+        self::assertSame('ssh', Config::fromEnvironment(['AYBAK_GIT_URL' => 'git@example.org:lb/gateways.git'] + self::GIT)->gitTransport());
+        $https = Config::fromEnvironment(self::GIT_HTTPS);
+        self::assertSame('https', $https->gitTransport());
+        self::assertSame('aybak', $https->gitUser);
+        self::assertSame('/run/aybak/token', $https->gitTokenFile);
+    }
+
     public function testDefaults(): void
     {
         $c = Config::fromEnvironment(self::GIT);
@@ -73,6 +91,16 @@ final class ConfigTest extends TestCase
         yield 'unknown address' => [self::GIT + ['AYBAK_ADDRESS' => 'Hostname'], 'AYBAK_ADDRESS'];
         yield 'git without key' => [array_diff_key(self::GIT, ['AYBAK_GIT_KEY_FILE' => 1]), 'AYBAK_GIT_KEY_FILE is required'];
         yield 'git without known hosts' => [array_diff_key(self::GIT, ['AYBAK_GIT_KNOWN_HOSTS_FILE' => 1]), 'AYBAK_GIT_KNOWN_HOSTS_FILE is required'];
+        yield 'git without url' => [array_diff_key(self::GIT, ['AYBAK_GIT_URL' => 1]), 'AYBAK_GIT_URL is required'];
+        yield 'git over http' => [['AYBAK_GIT_URL' => 'http://git.example.org/gateways.git'] + self::GIT_HTTPS, 'ssh:// or https://'];
+        yield 'git file url' => [['AYBAK_GIT_URL' => 'file:///srv/gateways.git'] + self::GIT, 'ssh:// or https://'];
+        yield 'https with a user in the url' => [['AYBAK_GIT_URL' => 'https://aybak@git.example.org/gateways.git'] + self::GIT_HTTPS, 'must not carry a user or password'];
+        yield 'https with a password in the url' => [['AYBAK_GIT_URL' => 'https://aybak:t0ken@git.example.org/gateways.git'] + self::GIT_HTTPS, 'must not carry a user or password'];
+        yield 'https without user' => [array_diff_key(self::GIT_HTTPS, ['AYBAK_GIT_USER' => 1]), 'AYBAK_GIT_USER is required'];
+        yield 'https without token' => [array_diff_key(self::GIT_HTTPS, ['AYBAK_GIT_TOKEN_FILE' => 1]), 'AYBAK_GIT_TOKEN_FILE is required'];
+        yield 'https user with a space' => [['AYBAK_GIT_USER' => "a b"] + self::GIT_HTTPS, 'AYBAK_GIT_USER must be'];
+        yield 'https with an ssh key' => [self::GIT_HTTPS + ['AYBAK_GIT_KEY_FILE' => '/k'], 'AYBAK_GIT_KEY_FILE does not apply'];
+        yield 'ssh with a token' => [self::GIT + ['AYBAK_GIT_TOKEN_FILE' => '/t'], 'AYBAK_GIT_TOKEN_FILE does not apply'];
         yield 'webhook over http' => [['AYBAK_CLUSTER' => 'c', 'AYBAK_OUTPUTS' => 'webhook', 'AYBAK_WEBHOOK_URL' => 'http://x', 'AYBAK_WEBHOOK_KEY_FILE' => '/k'], 'https://'];
         yield 'dataplane without backends' => [['AYBAK_CLUSTER' => 'c', 'AYBAK_OUTPUTS' => 'dataplane', 'AYBAK_DATAPLANE_URL' => 'https://lb', 'AYBAK_DATAPLANE_USER' => 'u', 'AYBAK_DATAPLANE_PASSWORD_FILE' => '/p'], 'AYBAK_DATAPLANE_BACKENDS is required'];
         yield 'bad backend' => [['AYBAK_CLUSTER' => 'c', 'AYBAK_OUTPUTS' => 'dataplane', 'AYBAK_DATAPLANE_URL' => 'https://lb', 'AYBAK_DATAPLANE_USER' => 'u', 'AYBAK_DATAPLANE_PASSWORD_FILE' => '/p', 'AYBAK_DATAPLANE_BACKENDS' => 'http_back'], '<backend>:<port>'];

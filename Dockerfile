@@ -4,7 +4,7 @@
 # The image's tag at 1x.ax/bke/aybak, read by the bahriya-images pipeline, which
 # builds, pushes and signs it. A published tag is never re-pushed, so a change to
 # the image changes this value, and the graph that installs it pins the new one.
-ARG AYBAK_VERSION=1.0.1
+ARG AYBAK_VERSION=1.1.0
 
 # --platform=$BUILDPLATFORM: the dependencies are plain PHP, the same on every
 # platform, so they are installed once, natively, rather than under emulation.
@@ -17,8 +17,9 @@ COPY src ./src
 RUN composer install --no-dev --no-interaction --no-progress --prefer-dist \
     --classmap-authoritative --no-scripts
 
-# The base image carries git and the SSH client the git output needs, and the
-# curl and pcntl extensions aybak needs. Nothing is installed on top of it.
+# The base image carries git, with its HTTPS transport, and the SSH client the
+# git output needs, and the curl and pcntl extensions aybak needs. Nothing is
+# installed on top of it.
 FROM 1x.ax/mamluk/php/8.5:cli
 WORKDIR /opt/aybak
 COPY --from=vendor /src/vendor ./vendor

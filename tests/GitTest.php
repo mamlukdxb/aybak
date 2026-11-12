@@ -40,8 +40,8 @@ final class GitTest extends TestCase
 
     private function git(): Git
     {
-        return new Git("file://{$this->dir}/remote.git", 'master', 'nodes/beyazid.json', '/nonexistent-key', '/nonexistent-known-hosts',
-            "{$this->dir}/work", 'Aybak', 'aybak@example.org');
+        return new Git("file://{$this->dir}/remote.git", 'master', 'nodes/beyazid.json', "{$this->dir}/work", 'Aybak', 'aybak@example.org',
+            keyFile: '/nonexistent-key', knownHostsFile: '/nonexistent-known-hosts');
     }
 
     private function commits(): int
@@ -85,7 +85,7 @@ final class GitTest extends TestCase
 
     public function testAnUnreachableRepositoryIsAFailure(): void
     {
-        $git = new Git("file://{$this->dir}/missing.git", 'master', 'n.json', '/k', '/h', "{$this->dir}/work2", 'A', 'a@b');
+        $git = new Git("file://{$this->dir}/missing.git", 'master', 'n.json', "{$this->dir}/work2", 'A', 'a@b', keyFile: '/k', knownHostsFile: '/h');
 
         $this->expectExceptionMessage('git clone failed');
         $git->send(NodeSet::fromNodeList('c', Fixtures::beyazid(), 'workers', 'calico'), new \DateTimeImmutable());

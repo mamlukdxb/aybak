@@ -41,8 +41,9 @@ foreach ($config->outputs as $name) {
     $outputs[] = match ($name) {
         'git' => new Git(
             (string) $config->gitUrl, $config->gitBranch, $config->gitPath,
-            (string) $config->gitKeyFile, (string) $config->gitKnownHostsFile,
             "{$config->stateDir}/repository", $config->gitAuthorName, $config->gitAuthorEmail,
+            keyFile: $config->gitKeyFile, knownHostsFile: $config->gitKnownHostsFile,
+            user: $config->gitUser, tokenFile: $config->gitTokenFile, caFile: $config->caFile,
         ),
         'webhook' => new Webhook($http, (string) $config->webhookUrl, (string) $config->webhookKeyFile, $config->caFile),
         'dataplane' => new DataPlane(
