@@ -204,6 +204,21 @@ including any added by hand. All named backends change in one transaction, so
 HAProxy sees either the old servers in every backend or the new ones in every
 backend.
 
+## Versions
+
+Each version is a git tag in this repository and an image tag of the same
+name, `1x.ax/bke/aybak:<version>`. Versions follow semantic versioning: a patch
+version fixes or adds without changing a setting's meaning, and a minor version
+adds a capability.
+
+| Version | Adds |
+| --- | --- |
+| 1.1.0 | The git output over HTTPS with a token, as well as over SSH. |
+| 1.0.1 | `AYBAK_CA_FILE`, for a server whose certificate is issued by a private certificate authority. |
+| 1.0.0 | The first version: the git, webhook and dataplane outputs, and the safety rule. |
+
+BKE pins the Aybak version it installs in each BKE release.
+
 ## Development
 
 Development needs PHP 8.5 with the curl and pcntl extensions, and git for the
